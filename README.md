@@ -8,7 +8,7 @@ Workers poll a Redis queue, process batches of ≤5 files, and report partial su
 
 ```bash
 # Clone
-git clone https://github.com/anujj-ti/distributed-mean.git
+git clone https://github.com/echosysbot/distributed-mean.git
 cd distributed-mean
 
 # Configure (defaults work out of the box)
