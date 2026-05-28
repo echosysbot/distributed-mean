@@ -19,6 +19,7 @@ interface JobsActions {
   upsertJob: (partial: Partial<Job> & { id: string }) => void;
   setJobs: (list: Job[]) => void;
   setJobTasks: (jobId: string, tasks: Task[]) => void;
+  clearJobTasks: (jobId: string) => void;
   toggleExpanded: (jobId: string) => void;
   pushQueueDepthSample: (t: number, depth: number) => void;
 }
@@ -74,6 +75,13 @@ export const useJobsStore = create<JobsStore>((set) => ({
     set((state) => ({
       jobTasks: { ...state.jobTasks, [jobId]: tasks },
     }));
+  },
+
+  clearJobTasks: (jobId) => {
+    set((state) => {
+      const { [jobId]: _, ...rest } = state.jobTasks;
+      return { jobTasks: rest };
+    });
   },
 
   toggleExpanded: (jobId) => {

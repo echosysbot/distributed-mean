@@ -51,6 +51,9 @@ export function useSSE(): void {
             break;
           case 'job_update':
             useJobsStore.getState().upsertJob(sseEvent.job);
+            if (sseEvent.job.status === 'done' || sseEvent.job.status === 'failed') {
+              useJobsStore.getState().clearJobTasks(sseEvent.job.id);
+            }
             break;
           case 'queue_depth':
             useSystemStore.getState().setQueueDepth(sseEvent.depth);
