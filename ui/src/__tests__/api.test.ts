@@ -68,14 +68,9 @@ describe('createJob', () => {
     });
     vi.stubGlobal('fetch', mockFetch);
 
-    await expect(createJob({ F: 5, C: 2 })).rejects.toThrow(ApiError);
-
-    try {
-      await createJob({ F: 5, C: 2 });
-    } catch (err) {
-      expect(err).toBeInstanceOf(ApiError);
-      expect((err as ApiError).status).toBe(400);
-    }
+    const err = await createJob({ F: 5, C: 2 }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(400);
   });
 });
 
