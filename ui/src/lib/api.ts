@@ -10,7 +10,7 @@ import type {
 
 // In dev, Vite proxy routes relative URLs to localhost:3000.
 // In prod, set VITE_API_BASE to the API origin (e.g. https://api.example.com).
-const BASE: string = import.meta.env['VITE_API_BASE'] ?? '';
+const BASE: string = (import.meta.env['VITE_API_BASE'] as string | undefined) ?? '';
 
 export class ApiError extends Error {
   constructor(

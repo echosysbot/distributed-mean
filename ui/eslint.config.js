@@ -1,4 +1,5 @@
 import js from '@eslint/js';
+import globals from 'globals';
 import tsParser from '@typescript-eslint/parser';
 import tsPlugin from '@typescript-eslint/eslint-plugin';
 import reactHooksPlugin from 'eslint-plugin-react-hooks';
@@ -13,6 +14,10 @@ export default [
       parserOptions: {
         project: ['./tsconfig.app.json'],
         tsconfigRootDir: import.meta.dirname,
+      },
+      globals: {
+        ...globals.browser,
+        ...globals.es2022,
       },
     },
     plugins: {
@@ -32,6 +37,6 @@ export default [
     },
   },
   {
-    ignores: ['dist/**', 'coverage/**', 'node_modules/**', '*.config.*'],
+    ignores: ['dist/**', 'coverage/**', 'node_modules/**', '**/*.config.*', '**/*.cjs'],
   },
 ];
