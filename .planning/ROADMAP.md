@@ -89,7 +89,7 @@
 - `npm run build` zero errors
 **Success:** `docker compose up --build` starts all services. Dashboard accessible at http://localhost:5173. Submitting a job shows real-time updates.
 
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 Plans:
 - [ ] 06-PLAN-01.md — Scaffold Vite+React+TS+Tailwind+Recharts+Zustand; mirror API types; build typed fetch client, Zustand stores, useSSE/useInitialLoad hooks
 - [ ] 06-PLAN-02.md — Build UI components: StatsCards, WorkerFleet, QueueDepthChart, WorkerSpeedChart, SubmitJobForm, LogFeed, Header
