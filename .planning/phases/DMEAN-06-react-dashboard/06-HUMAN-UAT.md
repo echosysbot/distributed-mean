@@ -2,38 +2,26 @@
 status: partial
 phase: 06-react-dashboard
 source: [06-VERIFICATION.md]
-started: 2026-05-28T07:23:15Z
-updated: 2026-05-28T07:23:15Z
+started: 2026-05-28T07:15:00Z
+updated: 2026-05-28T07:15:00Z
 ---
 
 ## Current Test
 
-[awaiting human testing — all items confirmed via automated run]
+[awaiting human testing]
 
 ## Tests
 
-### 1. Build passes with zero TypeScript errors
-expected: `npm run build` exits 0, no type errors
-result: confirmed — tsc -b passes, vite build succeeds (1.75s)
-
-### 2. Lint passes with zero warnings
-expected: `npm run lint` exits 0 with `--max-warnings 0`
-result: confirmed — ESLint passes cleanly
-
-### 3. Test suite passes with ≥60% coverage
-expected: 60 tests pass, coverage ≥60% on all metrics
-result: confirmed — 60/60 tests pass; statements 60.96%, branches 80.29%, functions 72.85%
-
-### 4. Docker smoke test (live environment)
-expected: `curl http://localhost:5173/` returns 200 with `id="root"`
-result: confirmed by executor agent during Task 3 smoke test
+### 1. Docker smoke test — React UI service
+expected: `docker compose build ui && docker compose up -d ui api redis postgres minio` starts successfully; `curl http://localhost:5173/` returns HTTP 200 with `id="root"`; `curl http://localhost:5173/system` returns JSON SystemStats
+result: [pending]
 
 ## Summary
 
-total: 4
-passed: 4
+total: 1
+passed: 0
 issues: 0
-pending: 0
+pending: 1
 skipped: 0
 blocked: 0
 
