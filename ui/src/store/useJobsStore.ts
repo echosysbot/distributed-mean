@@ -79,7 +79,8 @@ export const useJobsStore = create<JobsStore>((set) => ({
 
   clearJobTasks: (jobId) => {
     set((state) => {
-      const { [jobId]: _, ...rest } = state.jobTasks;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { [jobId]: _removed, ...rest } = state.jobTasks;
       return { jobTasks: rest };
     });
   },

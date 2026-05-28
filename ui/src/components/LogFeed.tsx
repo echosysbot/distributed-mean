@@ -13,7 +13,6 @@ const levelColor: Record<LogLevel, string> = {
 };
 
 export function LogFeed() {
-  const lines = useLogStore((s) => s.lines);
   const filter = useLogStore((s) => s.filter);
   const filteredLines = useLogStore(selectFilteredLines);
 
