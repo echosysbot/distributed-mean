@@ -64,8 +64,8 @@ export async function getJob(id: string): Promise<Job> {
 }
 
 /** GET /jobs/:id/tasks → { tasks: Task[] } (also handles array response) */
-export async function getJobTasks(id: string): Promise<Task[]> {
-  const data = await request<{ tasks: Task[] } | Task[]>(`/jobs/${id}/tasks`);
+export async function getJobTasks(id: string, signal?: AbortSignal): Promise<Task[]> {
+  const data = await request<{ tasks: Task[] } | Task[]>(`/jobs/${id}/tasks`, { signal });
   if (Array.isArray(data)) {
     return data;
   }

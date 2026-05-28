@@ -29,16 +29,20 @@ export function useJobTasks(jobId: string, enabled: boolean): UseJobTasksResult 
     // Deduplicate concurrent fetches for the same job
     if (inFlight.current) return;
 
+    const controller = new AbortController();
     inFlight.current = true;
     setLoading(true);
     setError(null);
 
-    getJobTasks(jobId)
+    getJobTasks(jobId, controller.signal)
       .then((tasks) => {
-        useJobsStore.getState().setJobTasks(jobId, tasks);
-        setLoading(false);
+        if (!controller.signal.aborted) {
+          useJobsStore.getState().setJobTasks(jobId, tasks);
+          setLoading(false);
+        }
       })
       .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
         const message = err instanceof Error ? err.message : String(err);
         setError(message);
         setLoading(false);
@@ -49,6 +53,8 @@ export function useJobTasks(jobId: string, enabled: boolean): UseJobTasksResult 
       .finally(() => {
         inFlight.current = false;
       });
+
+    return () => { controller.abort(); };
   }, [jobId, enabled]);
 
   return { loading, error };
