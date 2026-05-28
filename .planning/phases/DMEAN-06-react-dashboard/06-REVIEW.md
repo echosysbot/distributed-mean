@@ -2,17 +2,13 @@
 phase: DMEAN-06-react-dashboard
 reviewed: 2026-05-28T00:00:00Z
 depth: standard
-files_reviewed: 49
+files_reviewed: 43
 files_reviewed_list:
   - docker-compose.yml
   - ui/.dockerignore
   - ui/.eslintrc.cjs
-  - ui/.gitignore
-  - ui/Dockerfile
   - ui/eslint.config.js
-  - ui/index.html
   - ui/nginx.conf
-  - ui/package-lock.json
   - ui/package.json
   - ui/postcss.config.js
   - ui/src/App.tsx
@@ -39,26 +35,26 @@ files_reviewed_list:
   - ui/src/hooks/useInitialLoad.ts
   - ui/src/hooks/useJobTasks.ts
   - ui/src/hooks/useSSE.ts
-  - ui/src/index.css
   - ui/src/lib/api.ts
   - ui/src/lib/format.ts
   - ui/src/main.tsx
-  - ui/src/setupTests.ts
   - ui/src/store/useJobsStore.ts
   - ui/src/store/useLogStore.ts
   - ui/src/store/useSystemStore.ts
   - ui/src/types/api.ts
   - ui/src/types/sse.ts
-  - ui/src/vite-env.d.ts
   - ui/tailwind.config.ts
   - ui/tsconfig.app.json
+  - ui/tsconfig.json
+  - ui/tsconfig.node.json
   - ui/vite.config.ts
   - ui/vitest.config.ts
+  - ui/Dockerfile
 findings:
-  critical: 4
-  warning: 8
+  critical: 3
+  warning: 7
   info: 4
-  total: 16
+  total: 14
 status: issues_found
 ---
 
@@ -66,49 +62,30 @@ status: issues_found
 
 **Reviewed:** 2026-05-28T00:00:00Z
 **Depth:** standard
-**Files Reviewed:** 49
+**Files Reviewed:** 43
 **Status:** issues_found
 
 ## Summary
 
-This phase implements a React/TypeScript dashboard with Zustand stores, SSE streaming, Recharts visualizations, and a complete Vitest test suite. The architecture is sound and the code is generally well-structured. However, four blockers were found: a duplicate service key in docker-compose.yml that silently drops the first `ui` service definition, a memory leak from banner auto-dismiss timers that fire on unmounted components, an incorrect `key` prop placement (on a Fragment wrapping element rather than on the list element), and a missing SSE URL prefix that will 404 in production. Eight additional warnings cover store mutations leaking across tests, a stale-closure bug in the banner timer, unguarded type coercions, and missing `X-Forwarded-Proto` headers in the nginx proxy.
+This phase delivers a React/TypeScript dashboard built with Vite, Zustand, Recharts, Tailwind, and a complete Vitest test suite. The code is generally well-structured and follows consistent patterns. Three blockers were found: a banner auto-dismiss timer that leaks across component unmounts (timer is never cancelled), `useInitialLoad` explicitly overwriting SSE connection status back to `'connecting'` after SSE has already signaled `'connected'`, and the `/internal` backend route being exposed publicly through the nginx proxy without any access restriction. Seven warnings cover stale task data in the drill-down view, duplicate card-in-card DOM nesting, a dead `jobId` prop, duplicate vitest configs with divergent settings, missing store reset in one test file, and missing `X-Forwarded-Proto` in the nginx proxy headers.
 
 ---
 
 ## Critical Issues
 
-### CR-01: Duplicate `ui` service key silently discards first definition
+### CR-01: Banner auto-dismiss `setTimeout` has no cleanup — fires on unmounted component and overlapping timers corrupt banner state
 
-**File:** `docker-compose.yml:96-130`
-**Issue:** The `ui` service is declared twice (lines 96–111 and lines 115–130). YAML parsers silently keep only the last key, so the first definition — including the explicit comment "UI" — is discarded. The two definitions are identical, so the functional impact happens to be neutral today, but any future divergence between the two blocks will produce invisible, hard-to-debug configuration drift. Docker Compose will emit no error and will only start one `ui` container using the second definition.
-**Fix:** Remove the duplicate block (lines 115–130) and add a comment header `# ─── Workers ────────────────────────────────────────────────────────────────` immediately before the `worker:` service definition at line 132.
+**File:** `ui/src/components/SubmitJobForm.tsx:21-25`
 
-```yaml
-  # ─── Workers ────────────────────────────────────────────────────────────────
+**Issue:** `showBanner` creates a raw `setTimeout` with no stored ID and no cleanup. Three concrete failure modes:
 
-  worker:
-    build:
-      context: ./workers
-```
+1. If the component unmounts before 6 seconds (user navigates away, parent removes it conditionally), `setBanner(null)` fires on a stale closure. React 18 suppresses the "update on unmounted component" warning in production but the call still runs.
 
----
+2. If the user submits twice within 6 seconds, two independent timers are running. The first timer fires and clears the banner from the second submission. The user sees the success banner disappear 6 seconds after their first click regardless of when the second click happened.
 
-### CR-02: Banner auto-dismiss timer fires on unmounted component (memory leak / React warning)
+3. Under React StrictMode (which is active — `main.tsx:11`) effects are double-invoked in development. `showBanner` called from `handleSubmit` is not in an effect, so this is safe, but the pattern is fragile adjacent to effect code.
 
-**File:** `ui/src/components/SubmitJobForm.tsx:21-24`
-**Issue:** `showBanner` uses a bare `setTimeout` that calls `setBanner(null)` after 6 seconds. If the component unmounts before the timer fires (e.g., the user navigates away or the component is conditionally removed), React will emit an "update on unmounted component" warning in development and log a no-op state update in production. In React 18 strict mode (`App.tsx` renders inside `<React.StrictMode>`), effects and timers are double-invoked during development, meaning the timer can fire unexpectedly. There is no cleanup mechanism.
-
-```typescript
-// Current — no cleanup:
-function showBanner(b: Banner, durationMs = 6000) {
-  setBanner(b);
-  setTimeout(() => {
-    setBanner(null);
-  }, durationMs);
-}
-```
-
-**Fix:** Track the timer ID in a ref and clear it on each new call and on unmount:
+**Fix:** Store the timer ID in a ref, cancel on re-call, and clean up on unmount:
 
 ```typescript
 const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -135,159 +112,205 @@ useEffect(() => {
 
 ---
 
-### CR-03: `key` prop on `React.Fragment` is a no-op — React list reconciliation broken for task rows
-
-**File:** `ui/src/components/JobsTable.tsx:83`
-**Issue:** `<React.Fragment key={job.id}>` places the `key` on the Fragment wrapper. When React renders a list of Fragments, the `key` must be on the Fragment itself — which is correct for static JSX. However the `key` attribute here is redundant because the outer iterator (`jobList.map`) already renders `<JobRow key={j.id} .../>` (line 213). The bug is that `JobRow` itself returns a `<React.Fragment key={job.id}>` (line 83), but the `key` prop is **not forwarded through component boundaries** — the `key` on the Fragment inside `JobRow` has no relation to the outer list `key`. The outer `key={j.id}` on `<JobRow>` is what actually drives reconciliation, so the Fragment `key` inside is dead code and misleading. This is not simply a style issue: if `JobRow` is ever refactored to render multiple sibling rows outside a Fragment (e.g., to address the `colSpan` structure), developers will incorrectly believe the inner `key` is sufficient and remove the outer one.
-
-More critically: the `<JobTaskRows>` component (line 125) renders a bare `<>…</>` (shorthand Fragment without a key) containing multiple `<tr>` elements, which are siblings in the DOM to the parent `<tr>`. This means the task rows do not have keys on them at the correct level, which can cause incorrect DOM reconciliation when tasks are added or removed.
-
-**Fix:** Remove the `key` prop from the internal `React.Fragment` in `JobRow` — it is meaningless there — and ensure the outer `<JobRow key={j.id}>` call site (line 213) is the sole source of reconciliation identity. Document this in a comment.
-
-```typescript
-// JobsTable.tsx line 83 — remove key from Fragment:
-return (
-  <React.Fragment>
-    {/* key is managed by the parent map: <JobRow key={j.id} /> */}
-    <tr ...>
-```
-
----
-
-### CR-04: SSE endpoint hardcoded to `/events` — will 404 behind the nginx proxy for the `/system/events` path
-
-**File:** `ui/src/hooks/useSSE.ts:29`  
-**Issue:** The SSE hook connects to `/events` unconditionally:
-
-```typescript
-const es = new EventSource('/events');
-```
-
-The nginx config at `ui/nginx.conf` proxies **both** `/events` (line 47) and `/system/events` (line 35). However, the Vite dev proxy (`vite.config.ts`) only proxies `/events` (line 22), not `/system/events`. This is currently consistent, so in isolation it appears fine. The problem is the other direction: `nginx.conf` has a dedicated `/system/events` block with correct SSE headers (no-buffering, long timeout), yet the client always connects to `/events`. If the API server ever moves the SSE endpoint to `/system/events` — which the nginx config strongly suggests was either planned or is an alternate route — the client will silently fail. More concretely, the nginx `/system/events` block exists with no corresponding client usage, indicating either dead nginx config (a quality defect) or a missed client update (a correctness defect). Either the `/system/events` nginx block should be removed, or the SSE URL should be a configurable constant.
-
-**Fix:** Either remove the dead `/system/events` nginx proxy block, or expose the SSE endpoint as an env-configurable constant and document the intended URL:
-
-```typescript
-// useSSE.ts — use a named constant for the endpoint
-const SSE_ENDPOINT = (import.meta.env['VITE_SSE_ENDPOINT'] as string | undefined) ?? '/events';
-const es = new EventSource(SSE_ENDPOINT);
-```
-
-And clean up `nginx.conf` to remove the `/system/events` block if unused.
-
----
-
-## Warnings
-
-### WR-01: Stale closure — banner `setTimeout` captures `f`/`c` at call time but form state can change
-
-**File:** `ui/src/components/SubmitJobForm.tsx:21-24, 56`
-**Issue:** The `showBanner` function is declared inside `SubmitJobForm` but captures no reactive values. The actual stale closure risk is that calling `showBanner` multiple times in rapid succession will schedule overlapping timers, each independently setting `setBanner(null)`. If the user submits twice quickly, the first timer fires 6s after the first submission and will clear the banner from the second submission early. This is a race condition on the auto-dismiss timers, not just an unmount issue. (This partially overlaps with CR-02 but is a distinct runtime behavior.)
-
-**Fix:** Same fix as CR-02 — a single `bannerTimerRef` that is cleared on each `showBanner` call prevents overlapping timers.
-
----
-
-### WR-02: `useJobTasks` — `inFlight` ref is per-component-instance and does not prevent concurrent fetches across re-mounts
-
-**File:** `ui/src/hooks/useJobTasks.ts:20-30`
-**Issue:** The `inFlight` ref is reset to `false` on every unmount/remount of `JobRow`. If `JobRow` unmounts and remounts before the first fetch resolves (e.g., due to React StrictMode double-invocation or rapid expand/collapse), `inFlight.current` is `false` on the new mount and a second fetch is dispatched. The store-cache check (`if (cached !== undefined) return`) guards against a completed fetch, but not against an in-flight fetch from a previous mount. This can produce two concurrent requests for the same job's tasks, where both responses call `setJobTasks` — the second write is harmless but generates unnecessary network load.
-
-**Fix:** Move the in-flight guard to a module-level `Set` keyed by `jobId`, so it persists across component instances:
-
-```typescript
-const inFlightJobIds = new Set<string>();
-
-export function useJobTasks(jobId: string, enabled: boolean): UseJobTasksResult {
-  // ...
-  useEffect(() => {
-    if (!enabled) return;
-    const cached = useJobsStore.getState().jobTasks[jobId];
-    if (cached !== undefined) return;
-    if (inFlightJobIds.has(jobId)) return;
-
-    inFlightJobIds.add(jobId);
-    // ...fetch...
-    .finally(() => {
-      inFlightJobIds.delete(jobId);
-    });
-  }, [jobId, enabled]);
-}
-```
-
----
-
-### WR-03: `useInitialLoad` overwrites `connectionStatus` to `'connecting'` on every initial load — races with `useSSE`
+### CR-02: `useInitialLoad` resets `connectionStatus` to `'connecting'` — races with `useSSE` and reverts a live connection to a stale status
 
 **File:** `ui/src/hooks/useInitialLoad.ts:15-19`
-**Issue:** The `useInitialLoad` hook calls `useSystemStore.setState({ connectionStatus: 'connecting' })` after successfully receiving data from the API. If `useSSE` runs concurrently (both hooks are called at App mount) and the SSE connection opens before `useInitialLoad` finishes, `useSSE.onopen` sets status to `'connected'`, then `useInitialLoad`'s `setState` fires and reverts it to `'connecting'`. The user sees the connection status pill flicker from "Connecting..." to "Connected" then back to "Connecting..." momentarily. There is no intentional reason to reset connection status from within `useInitialLoad` — this field belongs solely to the SSE lifecycle.
 
-**Fix:** Remove `connectionStatus: 'connecting'` from the `useInitialLoad` setState call. Only `useSSE` should manage connection status.
+**Issue:** Both `useInitialLoad` and `useSSE` mount in `App` simultaneously. The race is deterministic in most environments:
+
+1. `useSSE` creates an `EventSource`, which fires `onopen` quickly, setting `connectionStatus = 'connected'`.
+2. `useInitialLoad` performs `Promise.all([listJobs(), getSystem()])` — two HTTP round-trips.
+3. When those resolve, `useInitialLoad` calls `useSystemStore.setState({ ..., connectionStatus: 'connecting' })`, overwriting the `'connected'` status written by step 1.
+
+The `StatusPill` will display "Connecting..." after the SSE connection is already live. In slower network environments the status may never reach "Connected" from the user's perspective.
+
+`connectionStatus` is part of the SSE lifecycle and should not be written by anything other than `useSSE`.
+
+**Fix:** Remove `connectionStatus` from the `useInitialLoad` setState:
 
 ```typescript
+// useInitialLoad.ts
 useSystemStore.setState({
   workers: sys.workers,
   queueDepth: sys.queueDepth,
-  // Do not reset connectionStatus here — owned by useSSE
+  // connectionStatus is owned exclusively by useSSE — do not write here
 });
 ```
 
 ---
 
-### WR-04: `JobTaskRows` receives `jobId` prop but never uses it — dead prop
+### CR-03: `/internal` backend route is publicly proxied without access restriction
 
-**File:** `ui/src/components/JobTaskRows.tsx:13`
-**Issue:** The component signature destructures `{ tasks, loading, error, colSpan }` but the interface declares `jobId: string` (line 6) as a required prop. The `jobId` parameter is accepted by the interface but immediately discarded in the destructuring. This is dead surface area on the component API — every call site must pass a `jobId` string that is never consumed.
+**File:** `ui/nginx.conf:27-32`
 
-```typescript
-// Interface declares jobId but component ignores it:
-export function JobTaskRows({ tasks, loading, error, colSpan }: JobTaskRowsProps) {
+**Issue:**
+
+```nginx
+location /internal {
+    proxy_pass http://api:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
 ```
 
-**Fix:** Remove `jobId` from `JobTaskRowsProps` and the `JobTaskRows` call site in `JobsTable.tsx`, or use it for something (e.g., a data-testid attribute).
+Any HTTP client that can reach the UI container's port 80 can send requests to `/internal/...` on the API. If the API exposes administrative or worker-management routes under `/internal` (which is a common convention for internal service-to-service endpoints), those routes are now reachable from the public internet with no authentication at the nginx layer.
+
+The Vite dev proxy (`vite.config.ts:26-29`) also proxies `/internal`, so this exposure is consistent across dev and production — which means there is no safety net in either environment.
+
+**Fix:** Either remove the `/internal` nginx proxy block entirely (inter-service calls from workers to API should use the Docker network directly, not go through the UI nginx), or restrict access to the Docker internal network:
+
+```nginx
+location /internal {
+    allow 172.16.0.0/12;   # Docker bridge network range
+    allow 127.0.0.1;
+    deny all;
+    proxy_pass http://api:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+Also remove the `/internal` entry from `vite.config.ts` proxy config for the dev server.
 
 ---
 
-### WR-05: `WorkerFleet` renders its own card wrapper duplicating the card already provided by `App.tsx`
+## Warnings
 
-**File:** `ui/src/components/WorkerFleet.tsx:34-36` and `ui/src/App.tsx:24-29`
-**Issue:** `App.tsx` wraps `<WorkerFleet />` inside a `<section className="rounded-lg bg-slate-800 border border-slate-700 p-5">` that already includes the card chrome. `WorkerFleet` itself returns another `<div className="rounded-lg bg-slate-800 border border-slate-700 p-5">` wrapper with a duplicate "Worker Fleet" heading. The same duplication exists in `SubmitJobForm`, `LogFeed`, `QueueDepthChart`, and `WorkerSpeedChart`. The result is double-bordered, double-padded sections in the rendered output, producing visual artifacts (nested dark cards). The `App.tsx` sections are redundant wrappers.
+### WR-01: Task drill-down view is permanently stale — `useJobTasks` never re-fetches after initial cache population
 
-**Fix:** Either remove the card wrapper `<div>` from each component (letting `App.tsx` control layout) or remove the `<section>` wrappers in `App.tsx` and let each component own its own chrome. Chose one pattern and apply consistently. The `Header.tsx` pattern (no self-wrapping card) is the cleaner approach.
+**File:** `ui/src/hooks/useJobTasks.ts:26-28`
+
+**Issue:** The cache check is:
+
+```typescript
+const cached = useJobsStore.getState().jobTasks[jobId];
+if (cached !== undefined) return;
+```
+
+Once tasks are fetched, `cached` is always defined (even as `[]`), and the hook never fetches again for that job ID. A job that is still `running` when the row is first expanded will show tasks as `pending`/`running` permanently, even after the job transitions to `done` via SSE. The `task_completed` SSE event is received in `useSSE.ts` but explicitly ignored with `// Reserved for future counter tracking`. There is no cache invalidation path.
+
+**Fix:** Invalidate the task cache when a `job_update` SSE event signals a terminal status (`done` or `failed`), or handle `task_completed` events with a jobId payload:
+
+```typescript
+// In useJobsStore.ts — add a clearJobTasks action:
+clearJobTasks: (jobId: string) => {
+  set((state) => {
+    const next = { ...state.jobTasks };
+    delete next[jobId];
+    return { jobTasks: next };
+  });
+},
+```
+
+```typescript
+// In useSSE.ts — clear cache when job completes:
+case 'job_update':
+  useJobsStore.getState().upsertJob(sseEvent.job);
+  if (sseEvent.job.status === 'done' || sseEvent.job.status === 'failed') {
+    useJobsStore.getState().clearJobTasks(sseEvent.job.id);
+  }
+  break;
+```
 
 ---
 
-### WR-06: `formatTime` in `ui/src/lib/format.ts` is exported but never imported anywhere
+### WR-02: `JobTaskRows` `jobId` prop is declared in the interface but never used inside the component
 
-**File:** `ui/src/lib/format.ts:35-37`
-**Issue:** `formatTime` is exported but a project-wide search of all imports reveals it is not used by any component, hook, or test file. With `noUnusedLocals` set in `tsconfig.app.json`, this would normally be caught at compile time — however `noUnusedLocals` only applies to local (non-exported) symbols. Exported dead code is invisible to TypeScript's checker. The function will be included in the bundle and accumulates maintenance debt.
+**File:** `ui/src/components/JobTaskRows.tsx:6, 13`
 
-**Fix:** Remove `formatTime` from `format.ts`, or add a usage (e.g., in `LogFeed` for displaying log timestamps consistently instead of the inline `new Date(line.ts).toLocaleTimeString()` call at `LogFeed.tsx:75`).
+**Issue:** `JobTaskRowsProps` declares `jobId: string` as a required field, but the function destructures only `{ tasks, loading, error, colSpan }`. Every call site in `JobsTable.tsx` must pass a `jobId` prop that is silently discarded. TypeScript does not flag this because the prop is consumed at the boundary — it is simply never destructured.
+
+**Fix:** Remove `jobId` from `JobTaskRowsProps` and remove the prop from the call site in `JobsTable.tsx:125`:
+
+```typescript
+interface JobTaskRowsProps {
+  tasks: Task[] | undefined;
+  loading: boolean;
+  error: string | null;
+  colSpan: number;
+}
+```
 
 ---
 
-### WR-07: Zustand store state leaks between test files — `expandedJobs: new Set()` reference shared
+### WR-03: Double card nesting — components own their card wrapper AND `App.tsx` wraps them in an identical card section
 
-**File:** `ui/src/__tests__/stores.test.ts:9-18`, `ui/src/__tests__/JobsTable.test.tsx:10-16`
-**Issue:** Each test's `beforeEach` calls `useJobsStore.setState({ expandedJobs: new Set() })`. Zustand's `setState` performs a shallow merge — it replaces the reference at `expandedJobs` with the provided `new Set()`. However if any test calls `toggleExpanded`, it mutates the Set in-place via `set((state) => { const next = new Set(state.expandedJobs); ... })`. This is actually safe because `toggleExpanded` creates a new Set. But the `workerSpeedHistory` in `useSystemStore` is a `Record<string, WorkerSpeedSample[]>`, and the `setWorkers` action spreads it: `const updated = { ...state.workerSpeedHistory }`. If test isolation is not perfect (e.g., a test adds a worker without cleanup), the spread copies references to the old arrays, and those arrays are mutated by `pruneHistory` returning new arrays (safe). The real risk is that `vitest` runs test files in worker threads sharing the module graph — stores persist their singleton state across tests in the same file. The `beforeEach` resets in stores.test.ts are correct, but tests in `useSSE.test.tsx` reset `useSystemStore` but do **not** reset `useJobsStore.queueDepthHistory`, meaning a `queue_depth` SSE event test that fires `pushQueueDepthSample` could leave a non-empty `queueDepthHistory` visible to later tests.
+**File:** `ui/src/App.tsx:24-29, 31-36, 60-67` and `ui/src/components/WorkerFleet.tsx:34-36`, `ui/src/components/SubmitJobForm.tsx:77`, `ui/src/components/LogFeed.tsx:38`
 
-**Fix:** In `useSSE.test.tsx`'s `beforeEach`, also reset `queueDepthHistory`:
+**Issue:** `App.tsx` wraps `<WorkerFleet>`, `<SubmitJobForm>`, and `<LogFeed>` in `<section className="rounded-lg bg-slate-800 border border-slate-700 p-5">` with a section `<h2>`. Each of those components then renders its own identical outer `<div className="rounded-lg bg-slate-800 border border-slate-700 p-5">` with its own `<h2>` heading. The DOM result is a dark card nested inside an identical dark card, producing visible double-border and double-padding artifacts. The `LogFeed` component is the worst case: `App.tsx:62` renders a "Live Log" `h2`, and `LogFeed.tsx:41` renders another "Live Log" `h2` directly below it.
+
+**Fix:** Decide on one owner for the card chrome. Recommended: remove the outer card `<div>` and duplicate `<h2>` from each leaf component so that `App.tsx` is the single source of card layout. `QueueDepthChart` and `WorkerSpeedChart` follow this same anti-pattern.
+
+---
+
+### WR-04: `useInitialLoad` fetch errors are swallowed as `warn` log lines with no user-visible signal
+
+**File:** `ui/src/hooks/useInitialLoad.ts:20-23`
+
+**Issue:**
+
+```typescript
+} catch (err) {
+  const message = err instanceof Error ? err.message : String(err);
+  useLogStore.getState().addLine('warn', `Initial load failed: ${message}`);
+}
+```
+
+If the API is unreachable when the page first loads, all jobs and system state silently remain empty. The only feedback is a `warn` log line in the `LogFeed` component, which the user may not notice. The `StatsCards` will show all zeros with no indication that data failed to load. The `StatusPill` still shows "Connecting…" from the SSE connection (which may also fail), but there is no dedicated "data load failed" state.
+
+**Fix:** At minimum, also set a visible error state. A simple approach is to add an `error` field to `useSystemStore` and display a banner in `App.tsx`:
+
+```typescript
+} catch (err) {
+  const message = err instanceof Error ? err.message : String(err);
+  useLogStore.getState().addLine('warn', `Initial load failed: ${message}`);
+  useSystemStore.getState().setInitialLoadError(message);
+}
+```
+
+---
+
+### WR-05: `vitest.config.ts` and the `test` block in `vite.config.ts` are divergent — `setupFiles` missing from `vitest.config.ts`
+
+**File:** `ui/vitest.config.ts:1-21` and `ui/vite.config.ts:30-47`
+
+**Issue:** Two sources of vitest configuration exist with different settings:
+
+- `vite.config.ts` test block: includes `setupFiles: ['./src/setupTests.ts']`, coverage `include`/`exclude` patterns, and `globals: true`.
+- `vitest.config.ts`: omits `setupFiles`, omits coverage `include`/`exclude`, adds `lcov` reporter.
+
+When `vitest` is invoked directly (e.g., `npx vitest` or CI runner without `--config`), Vitest prefers `vitest.config.ts` over the embedded `test` block in `vite.config.ts`. Under `vitest.config.ts`, `setupFiles` is absent, so `@testing-library/jest-dom/vitest` is never imported and all `toBeInTheDocument()` assertions throw `TypeError: expect(...).toBeInTheDocument is not a function`. All component tests currently fail under this config.
+
+**Fix:** Delete `vitest.config.ts` and keep the single authoritative test configuration in `vite.config.ts`, or migrate entirely to `vitest.config.ts` with the complete merged settings from both files.
+
+---
+
+### WR-06: `useSSE.test.tsx` does not reset `queueDepthHistory` in `beforeEach` — samples from one test pollute later tests
+
+**File:** `ui/src/__tests__/useSSE.test.tsx:44-60`
+
+**Issue:** The `beforeEach` block resets `useSystemStore` and `useJobsStore.jobs/jobTasks/expandedJobs`, but does not reset `queueDepthHistory`. The `queue_depth` event test at line 68-79 calls `pushQueueDepthSample` via the `queue_depth` SSE event handler. That sample persists in `queueDepthHistory` for subsequent tests in the file. While no current test asserts on `queueDepthHistory`, any future test that checks chart data will see phantom samples from prior tests.
+
+**Fix:** Reset `queueDepthHistory` in `beforeEach`:
 
 ```typescript
 useJobsStore.setState({
   jobs: {},
   jobTasks: {},
   expandedJobs: new Set(),
-  queueDepthHistory: [],  // ensure clean slate
+  queueDepthHistory: [],
 });
 ```
 
 ---
 
-### WR-08: nginx proxy missing `X-Forwarded-Proto` header — API cannot determine TLS termination
+### WR-07: nginx proxy is missing `X-Forwarded-Proto` header — API cannot determine TLS termination status
 
-**File:** `ui/nginx.conf:12-44`
-**Issue:** All proxy location blocks set `X-Forwarded-For` but omit `X-Forwarded-Proto`. When this nginx container sits behind a TLS-terminating load balancer or reverse proxy (standard production deployment), the API process receives HTTP requests with no indication that the original connection was HTTPS. Any API logic that inspects the protocol to enforce HTTPS redirects or set secure cookies will behave incorrectly.
+**File:** `ui/nginx.conf:12-15, 20-23, 28-31, 36-41, 49-54`
+
+**Issue:** All five proxy location blocks set `X-Forwarded-For` but none set `X-Forwarded-Proto`. When this nginx container is placed behind a TLS-terminating load balancer (the standard production topology), the API receives all requests as plain HTTP with no indication that the original connection was HTTPS. Any API logic that checks the protocol for HTTPS enforcement, secure cookie flags, or CSP policy generation will behave incorrectly.
 
 **Fix:** Add `proxy_set_header X-Forwarded-Proto $scheme;` to all proxy location blocks:
 
@@ -305,32 +328,16 @@ location /jobs {
 
 ## Info
 
-### IN-01: Two vitest config files exist with divergent coverage settings
+### IN-01: `formatTime` is exported from `lib/format.ts` but never imported anywhere — dead export
 
-**File:** `ui/vite.config.ts:30-47` and `ui/vitest.config.ts:1-21`
-**Issue:** `vite.config.ts` embeds a `test` block (used when running `vitest` from Vite), and `vitest.config.ts` exists as a separate config. The `vitest.config.ts` file specifies `reporter: ['text', 'html', 'lcov']` while `vite.config.ts` specifies `reporter: ['text', 'html']` (no lcov). The `vitest.config.ts` also omits the `include`/`exclude` coverage patterns present in `vite.config.ts`. When `vitest` is run directly (e.g., from CI using `npx vitest`), Vitest picks `vitest.config.ts` over the embedded config and the coverage exclusions are lost.
+**File:** `ui/src/lib/format.ts:35-37`
 
-**Fix:** Remove the `test` block from `vite.config.ts` and consolidate all test/coverage config in `vitest.config.ts` with the union of both configurations.
+**Issue:** `formatTime` is an exported utility function but no source file imports it. `LogFeed.tsx:75` duplicates its logic inline with `new Date(line.ts).toLocaleTimeString()`. The function is dead code that ships in the bundle and must be maintained alongside the inline duplicate.
 
----
-
-### IN-02: `clsx` dependency declared but not used anywhere in source
-
-**File:** `ui/package.json:16`
-**Issue:** `clsx` is listed as a production dependency but a search of all `.ts`/`.tsx` files finds no `import ... from 'clsx'` statement. The package ships 1.5KB (minified) in the production bundle unnecessarily.
-
-**Fix:** Remove `"clsx": "^2.1.0"` from `dependencies` in `package.json` and run `npm install` to update the lockfile.
-
----
-
-### IN-03: `formatElapsed` in `LogFeed` — inline `toLocaleTimeString()` duplicates `formatTime` logic
-
-**File:** `ui/src/components/LogFeed.tsx:75`
-**Issue:** `LogFeed` calls `new Date(line.ts).toLocaleTimeString()` inline rather than using `formatTime` from `../lib/format`. This is the only in-source use of the same pattern that `formatTime` encapsulates. If locale formatting ever needs to change (e.g., 24-hour format, timezone), it must be changed in both places.
-
-**Fix:** Import and use `formatTime` from `../lib/format` (which resolves IN-02 / WR-06 simultaneously):
+**Fix:** Either delete `formatTime`, or use it in `LogFeed.tsx` to eliminate the duplication:
 
 ```typescript
+// LogFeed.tsx
 import { formatTime } from '../lib/format';
 // ...
 <span className="text-slate-600 select-none">{formatTime(line.ts)}</span>
@@ -338,12 +345,46 @@ import { formatTime } from '../lib/format';
 
 ---
 
-### IN-04: `docker-compose.yml` uses deprecated `version:` top-level key
+### IN-02: `clsx` is listed as a production dependency but is not imported anywhere in the source
+
+**File:** `ui/package.json:16`
+
+**Issue:** `"clsx": "^2.1.0"` is in `dependencies` (not `devDependencies`), so it ships in the production bundle. No `.ts` or `.tsx` file imports from `clsx`. The library adds ~1.5KB (minified) to the bundle unnecessarily.
+
+**Fix:** Remove `"clsx": "^2.1.0"` from `dependencies` in `package.json`.
+
+---
+
+### IN-03: `React.Fragment` with `key` prop inside `JobRow` is misleading dead code
+
+**File:** `ui/src/components/JobsTable.tsx:83`
+
+**Issue:**
+
+```tsx
+return (
+  <React.Fragment key={job.id}>
+```
+
+The `key` prop here has no effect. Keys must be placed on elements at the point where they appear in a list — the effective key is the `key={j.id}` on the `<JobRow>` element at line 214. The `key` on the Fragment inside `JobRow` is not visible to React's reconciliation for the outer list. This misleads a reader into thinking the inner `key` is doing work, and may cause a developer to remove the outer `key` thinking it is redundant.
+
+**Fix:** Remove `key` from the inner Fragment:
+
+```tsx
+return (
+  <React.Fragment>
+    {/* reconciliation key is on the <JobRow key={j.id}> call site */}
+```
+
+---
+
+### IN-04: `docker-compose.yml` uses the deprecated `version:` top-level key
 
 **File:** `docker-compose.yml:1`
-**Issue:** `version: "3.9"` is ignored by Docker Compose v2 (which ships with Docker Desktop 4.x) and will trigger a deprecation warning. It has no effect on behavior but adds noise to `docker compose up` output.
 
-**Fix:** Remove the `version: "3.9"` line from the top of `docker-compose.yml`.
+**Issue:** `version: "3.9"` is ignored by Docker Compose v2 (which ships with Docker Desktop 4.x and later) and produces a deprecation warning on every `docker compose up` invocation. It has no effect on behavior.
+
+**Fix:** Remove the `version: "3.9"` line.
 
 ---
 
