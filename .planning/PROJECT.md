@@ -26,12 +26,17 @@ A distributed computation system that computes the index-wise mean across F file
 - TypeScript: strict, noImplicitAny, noUncheckedIndexedAccess, exactOptionalPropertyTypes
 - ESLint: @typescript-eslint/strict-type-checked, zero warnings
 - Python: Pydantic v2 strict, Ruff with select=ALL minus exceptions, Black, mypy strict
-- Tests: Jest (API ≥75% coverage), pytest (workers ≥75% coverage), Vitest (UI)
+- Tests: Jest (API ≥75% coverage), pytest (workers ≥75% coverage), Vitest (UI ≥60% coverage — 60/60 tests pass)
 - CI: GitHub Actions on every PR — lint + test + docker build + integration tests
 
 ## Success Criteria
 - `docker compose up --build` → everything starts, no errors
 - POST /jobs with F=20, C=100 → job completes, result downloadable
-- Dashboard at http://localhost:3001 shows workers, queue, live logs in real time
+- Dashboard at http://localhost:5173 shows workers, queue, live logs in real time (React 18 + Tailwind)
 - All tests pass in CI
 - TypeScript strict: zero errors. Ruff: zero violations. ESLint: zero warnings.
+
+## Current State
+Phase 06 complete (2026-05-28) — React dashboard fully deployed. Vite + React 18 + TypeScript + Recharts + Tailwind CSS dashboard built and containerized. `ui` service added to docker-compose on port 5173. Legacy vanilla dashboard retired.
+
+Last updated: 2026-05-28
