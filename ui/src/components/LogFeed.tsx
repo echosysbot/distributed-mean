@@ -26,7 +26,7 @@ export function LogFeed() {
     if (wasNearBottom.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [lines.length]);
+  }, [filteredLines.length]);
 
   function handleScroll() {
     const el = containerRef.current;
