@@ -1,7 +1,7 @@
-/** Returns a short 8-character prefix of a UUID for display. */
-export function shortId(id: string | null | undefined): string {
+/** Returns a short prefix of a UUID for display (default 8 chars). */
+export function shortId(id: string | null | undefined, len = 8): string {
   if (id == null || id.length === 0) return '?';
-  return id.substring(0, 8);
+  return id.substring(0, len);
 }
 
 /**
