@@ -15,7 +15,7 @@ export function useInitialLoad(): void {
         useSystemStore.setState({
           workers: sys.workers,
           queueDepth: sys.queueDepth,
-          connectionStatus: 'connecting',
+          // connectionStatus is owned exclusively by useSSE — do not write here
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
