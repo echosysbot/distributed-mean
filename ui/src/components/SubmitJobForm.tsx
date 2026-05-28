@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, useRef, type FormEvent } from 'react';
 import { createJob, ApiError } from '../lib/api';
 import { useJobsStore } from '../store/useJobsStore';
 import { useLogStore } from '../store/useLogStore';
@@ -15,15 +15,25 @@ export function SubmitJobForm() {
   const [submitting, setSubmitting] = useState(false);
   const [banner, setBanner] = useState<Banner | null>(null);
 
+  const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const sizeBytes = f * c * 9;
   const batches = Math.ceil(f / 5);
 
   function showBanner(b: Banner, durationMs = 6000) {
+    if (bannerTimerRef.current !== null) clearTimeout(bannerTimerRef.current);
     setBanner(b);
-    setTimeout(() => {
+    bannerTimerRef.current = setTimeout(() => {
       setBanner(null);
+      bannerTimerRef.current = null;
     }, durationMs);
   }
+
+  useEffect(() => {
+    return () => {
+      if (bannerTimerRef.current !== null) clearTimeout(bannerTimerRef.current);
+    };
+  }, []);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
