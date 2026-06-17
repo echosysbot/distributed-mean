@@ -1,431 +1,257 @@
 ---
-phase: "06"
-phase_name: react-dashboard
+phase: DMEAN-06-react-dashboard
+reviewed: 2026-06-17T00:00:00Z
 depth: standard
-files_reviewed: 47
+files_reviewed: 38
 files_reviewed_list:
-  - ui/package.json
-  - ui/tsconfig.json
-  - ui/tsconfig.app.json
-  - ui/tsconfig.node.json
-  - ui/vite.config.ts
-  - ui/vitest.config.ts
-  - ui/tailwind.config.ts
-  - ui/postcss.config.js
-  - ui/eslint.config.js
-  - ui/.eslintrc.cjs
-  - ui/index.html
   - ui/src/App.tsx
   - ui/src/main.tsx
-  - ui/src/index.css
-  - ui/src/vite-env.d.ts
-  - ui/src/types/api.ts
-  - ui/src/types/sse.ts
-  - ui/src/lib/api.ts
-  - ui/src/store/useSystemStore.ts
-  - ui/src/store/useJobsStore.ts
-  - ui/src/store/useLogStore.ts
-  - ui/src/hooks/useSSE.ts
-  - ui/src/hooks/useInitialLoad.ts
-  - ui/src/setupTests.ts
-  - ui/src/lib/format.ts
-  - ui/src/components/StatusPill.tsx
   - ui/src/components/Header.tsx
-  - ui/src/components/StatsCards.tsx
-  - ui/src/components/WorkerFleet.tsx
-  - ui/src/components/SubmitJobForm.tsx
-  - ui/src/components/LogFeed.tsx
-  - ui/src/components/QueueDepthChart.tsx
-  - ui/src/components/WorkerSpeedChart.tsx
-  - ui/src/components/StatusBadge.tsx
   - ui/src/components/JobTaskRows.tsx
   - ui/src/components/JobsTable.tsx
+  - ui/src/components/LogFeed.tsx
+  - ui/src/components/QueueDepthChart.tsx
+  - ui/src/components/StatsCards.tsx
+  - ui/src/components/StatusBadge.tsx
+  - ui/src/components/StatusPill.tsx
+  - ui/src/components/SubmitJobForm.tsx
+  - ui/src/components/WorkerFleet.tsx
+  - ui/src/components/WorkerSpeedChart.tsx
+  - ui/src/hooks/useInitialLoad.ts
   - ui/src/hooks/useJobTasks.ts
-  - ui/src/__tests__/format.test.ts
-  - ui/src/__tests__/api.test.ts
-  - ui/src/__tests__/stores.test.ts
-  - ui/src/__tests__/StatusBadge.test.tsx
-  - ui/src/__tests__/StatsCards.test.tsx
-  - ui/src/__tests__/LogFeed.test.tsx
-  - ui/src/__tests__/SubmitJobForm.test.tsx
+  - ui/src/hooks/useSSE.ts
+  - ui/src/lib/api.ts
+  - ui/src/lib/format.ts
+  - ui/src/store/useJobsStore.ts
+  - ui/src/store/useLogStore.ts
+  - ui/src/store/useSystemStore.ts
+  - ui/src/types/api.ts
+  - ui/src/types/sse.ts
   - ui/src/__tests__/JobsTable.test.tsx
+  - ui/src/__tests__/LogFeed.test.tsx
+  - ui/src/__tests__/StatsCards.test.tsx
+  - ui/src/__tests__/StatusBadge.test.tsx
+  - ui/src/__tests__/SubmitJobForm.test.tsx
+  - ui/src/__tests__/api.test.ts
+  - ui/src/__tests__/format.test.ts
+  - ui/src/__tests__/stores.test.ts
   - ui/src/__tests__/useSSE.test.tsx
+  - ui/vite.config.ts
   - ui/nginx.conf
-  - ui/.dockerignore
-  - ui/Dockerfile
-  - docker-compose.yml
+  - ui/tailwind.config.ts
+  - ui/tsconfig.app.json
+  - ui/tsconfig.json
+  - ui/tsconfig.node.json
 findings:
   critical: 1
-  warning: 8
+  warning: 6
   info: 5
-  total: 14
+  total: 12
 status: issues_found
-reviewed_at: 2026-05-28
 ---
 
-# Phase 06: Code Review Report
+# Phase DMEAN-06: Code Review Report
 
-**Reviewed:** 2026-05-28
+**Reviewed:** 2026-06-17
 **Depth:** standard
-**Files Reviewed:** 47
+**Files Reviewed:** 38
 **Status:** issues_found
 
 ## Summary
 
-This is a React 18 + TypeScript + Vite dashboard for the Distributed Mean system. The overall structure is sound: Zustand stores are cleanly separated, SSE reconnection logic is well-structured, and TypeScript is configured with strict settings including `noUncheckedIndexedAccess`. However, multiple bugs were found across hooks, infrastructure config, and tests that need addressing before production deployment.
+This is a fresh review of the React dashboard (`ui/`) reflecting the current state of the
+code after the prior review-fix iteration recorded in `06-REVIEW-FIX.md`. The earlier
+findings (CR-01 nginx `/internal`, WR-01..WR-08) all appear correctly resolved in the
+current tree — `/internal` is gone, `X-Forwarded-Proto` is present, the banner timer is
+cleaned up, `useJobTasks` aborts on unmount, `LogFeed` scrolls on `filteredLines.length`,
+the duplicate `vitest.config.ts` is gone, and the SSE handler invalidates task cache on
+terminal job state.
 
-The single critical issue is that the nginx config exposes the `/internal` API path publicly without any access restriction. On the application side the main correctness defects are: a timer leak in `SubmitJobForm`, a state-clobbering bug in `useInitialLoad` that reverts the connection indicator after SSE is already live, an unmount-unsafe fetch in `useJobTasks`, and a scroll trigger mismatch in `LogFeed`. A significant test infrastructure defect means `vitest.config.ts` is missing `setupFiles`, causing all `toBeInTheDocument()` assertions to fail when tests are run directly through `vitest` rather than through `vite.config.ts`. Five additional info-level findings cover dead exports, an unused dependency, duplicate DOM chrome, misleading Fragment key, and a deprecated compose field.
+However, this adversarial pass surfaces a new structural defect that the previous review
+missed: **every "card" component that is also wrapped by `App.tsx` renders its own
+duplicate card + `<h2>` heading.** Five panels render their title and outer chrome twice,
+producing duplicated headings and nested cards in the live UI. This is the lead BLOCKER.
+Several correctness and robustness warnings follow, plus quality/info items.
 
----
+The test suite is reasonable for store/hook/format/api logic, but no test renders `App.tsx`
+or asserts on heading uniqueness, which is exactly why the duplicate-card defect slipped
+through.
+
+## Narrative Findings (AI reviewer)
 
 ## Critical Issues
 
-### CR-01: nginx exposes `/internal` route without any access restriction
+### CR-01: Five panel components render a duplicate card wrapper and heading
 
-**File:** `ui/nginx.conf:26-33`
+**File:** `ui/src/App.tsx:24-67` together with `ui/src/components/WorkerFleet.tsx:33-46`, `ui/src/components/SubmitJobForm.tsx:86-90`, `ui/src/components/QueueDepthChart.tsx:43-46`, `ui/src/components/WorkerSpeedChart.tsx:50-54` and `:84-87`, `ui/src/components/LogFeed.tsx:37-41`
 
-**Issue:** The `/internal` location block unconditionally proxies all requests to `http://api:3000` with no IP restriction, authentication requirement, or any other access guard. Any HTTP client that can reach port 80 of the nginx container — including browsers accessing the UI — can invoke `/internal/...` routes on the API directly. If these routes perform administrative operations (worker scaling, queue management, service-to-service calls), this is a direct external exposure of internal admin surface. The Vite dev proxy (`vite.config.ts:23-26`) also exposes this path, so the gap exists in both dev and production.
+**Issue:** `App.tsx` already wraps each panel in a styled `<section class="rounded-lg bg-slate-800 border border-slate-700 p-5">` containing an `<h2>` title — e.g. `<h2>Worker Fleet</h2><WorkerFleet />` (lines 24-28), `<h2>Submit Job</h2><SubmitJobForm />` (31-35), `<h2>Queue Depth</h2><QueueDepthChart />` (39-43), `<h2>Worker Activity</h2><WorkerSpeedChart />` (45-49), `<h2>Live Log</h2><LogFeed />` (60-66).
 
-**Fix:** Remove the `/internal` location block from `nginx.conf` entirely (and the corresponding proxy entry from `vite.config.ts`) if no browser code calls it. Inter-service traffic to `/internal` should use the Docker network directly. If browser calls to `/internal` are genuinely required, restrict to internal network ranges:
+But each of those five components *also* renders its own outer `<div class="rounded-lg bg-slate-800 border border-slate-700 p-5">` plus its own `<h2>` ("Worker Fleet", "Submit Job", "Queue Depth (last 2 min)", "Worker Activity (last 2 min)", "Live Log"). The result is a card nested inside a card, and the title appears twice in the DOM for each of these panels.
 
-```nginx
-location /internal {
-    allow 172.16.0.0/12;
-    allow 10.0.0.0/8;
-    allow 127.0.0.1;
-    deny all;
+This is provably inconsistent: `StatsCards.tsx` and `JobsTable.tsx` correctly render *no* wrapper/heading and rely on `App.tsx` for chrome, while the five components above duplicate it. The two conventions cannot both be intended.
 
-    proxy_pass http://api:3000;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+User-visible impact: doubled headings, doubled borders/padding, and broken accessibility (duplicate headings, redundant box nesting).
+
+**Fix:** Pick one convention. The cleanest is to make components render only their inner content (matching `StatsCards`/`JobsTable`) and let `App.tsx` own the card + heading. For each of the five components, remove the outer wrapper `<div className="rounded-lg bg-slate-800 ... p-5">` and the self-rendered `<h2>`. Example for `WorkerFleet.tsx`:
+
+```tsx
+export function WorkerFleet() {
+  const workers = useSystemStore((s) => s.workers);
+  return (
+    <div className="flex flex-wrap gap-2 min-h-[60px]">
+      {workers.length === 0 ? (
+        <span className="text-slate-500 text-sm">No workers connected yet</span>
+      ) : (
+        workers.map((w) => <WorkerChip key={w.id} worker={w} />)
+      )}
+    </div>
+  );
 }
 ```
 
----
+Apply the equivalent removal to `SubmitJobForm`, `QueueDepthChart`, `WorkerSpeedChart` (both the data branch and the empty-state branch), and `LogFeed` (note `LogFeed` additionally renders its own filter `<h2>Live Log</h2>` while `App.tsx` also renders one at line 62 — remove the component's). Then add a test that renders `<App />` and asserts each heading text appears exactly once.
 
 ## Warnings
 
-### WR-01: `useInitialLoad` resets `connectionStatus` to `'connecting'` after successful bootstrap — races with `useSSE` and reverts a live connection
+### WR-01: `useInitialLoad` overwrites `jobs` map, dropping any jobs delivered by SSE during bootstrap
 
-**File:** `ui/src/hooks/useInitialLoad.ts:15-19`
+**File:** `ui/src/hooks/useInitialLoad.ts:12-14`
 
-**Issue:** Both `useSSE` and `useInitialLoad` mount concurrently in `App`. The race resolves predictably:
+**Issue:** `useInitialLoad` and `useSSE` both run on mount (`App.tsx:13-14`). `useInitialLoad` does `useJobsStore.setState({ jobs: Object.fromEntries(...) })`, a wholesale replacement. If the SSE connection opens and a `job_update` arrives (via `upsertJob`) before the `listJobs()` promise resolves, that job is silently discarded by the replacement. This is a real race: the SSE handshake (`/events`) and `listJobs()`/`getSystem()` fire concurrently.
 
-1. `useSSE` creates an `EventSource`; `onopen` fires quickly and sets `connectionStatus = 'connected'`.
-2. `useInitialLoad` performs two HTTP round-trips (`Promise.all([listJobs(), getSystem()])`).
-3. When those resolve, `useInitialLoad` calls `useSystemStore.setState({ ..., connectionStatus: 'connecting' })`, overwriting the `'connected'` status from step 1.
+**Fix:** Merge instead of replace. Minimal fix — merge over current state:
 
-The `StatusPill` flickers from "Connected" back to "Connecting..." after initialization. In slow network environments it may never show "Connected" at all from the user's perspective. `connectionStatus` is owned by the SSE lifecycle and must not be written by `useInitialLoad`.
-
-**Fix:** Remove `connectionStatus` from the `useInitialLoad` setState call:
-
-```typescript
-useSystemStore.setState({
-  workers: sys.workers,
-  queueDepth: sys.queueDepth,
-  // connectionStatus is owned exclusively by useSSE — do not write here
-});
+```ts
+useJobsStore.setState((state) => ({
+  jobs: { ...Object.fromEntries(jobs.map((j) => [j.id, j])), ...state.jobs },
+}));
 ```
 
----
+(Spreading `state.jobs` last lets any newer SSE-delivered job win; choose the precedence intentionally.)
 
-### WR-02: `SubmitJobForm.showBanner` timer is never cancelled — fires on unmounted component and overlapping timers clear banners early
+### WR-02: SSE reconnect on error never clears the previous pending timer, leaking timers under flapping connections
 
-**File:** `ui/src/components/SubmitJobForm.tsx:21-25`
+**File:** `ui/src/hooks/useSSE.ts:74-81`
 
-**Issue:** `showBanner` calls `setTimeout` and discards the handle. Two failure modes:
+**Issue:** In `onerror`, a reconnect timer is stored in `timerRef.current` but a previous pending timer is never cleared before assigning a new one. `EventSource` can fire `onerror` repeatedly (e.g. flapping network) before the 3s timer elapses; each call to `connect()` → new `EventSource` → another `onerror` can schedule an additional `setTimeout` while the prior `timerRef.current` reference is overwritten, leaking the earlier timer (the effect-cleanup only clears the *latest* `timerRef.current`). This can produce multiple concurrent reconnect attempts / orphaned timers.
 
-1. If the component unmounts before 6 seconds (e.g. in a conditional render), `setBanner(null)` fires on a stale state dispatcher. React 18 suppresses the dev warning but the closure still runs.
+**Fix:** Clear any pending timer before scheduling a new one:
 
-2. If the user submits twice within 6 seconds, two independent timers run concurrently. The first timer fires at t+6s and clears the success banner from the second submission, regardless of when the second click happened.
+```ts
+es.onerror = () => {
+  useSystemStore.getState().setConnectionStatus('reconnecting');
+  es.close();
+  esRef.current = null;
+  if (timerRef.current !== null) clearTimeout(timerRef.current);
+  timerRef.current = setTimeout(() => { connect(); }, RECONNECT_DELAY_MS);
+};
+```
 
-```typescript
-// Current — no handle stored, no cleanup:
-function showBanner(b: Banner, durationMs = 6000) {
-  setBanner(b);
-  setTimeout(() => { setBanner(null); }, durationMs);
+### WR-03: `request()` assumes every successful response body is JSON
+
+**File:** `ui/src/lib/api.ts:52`
+
+**Issue:** On the success path, `request()` unconditionally returns `res.json()`. If an endpoint returns 204 No Content, an empty body, or a non-JSON success (e.g. a misconfigured proxy returning HTML), `res.json()` throws a raw `SyntaxError` that is *not* wrapped in `ApiError`, so callers' `instanceof ApiError` branches (e.g. `SubmitJobForm.tsx:69`) won't recognize it and the user sees a generic/confusing message. The error path (lines 33-50) carefully inspects `content-type`, but the success path does not.
+
+**Fix:** Guard the success parse:
+
+```ts
+try {
+  return (await res.json()) as T;
+} catch {
+  throw new ApiError(res.status, null, `Invalid JSON response: ${path}`);
 }
 ```
 
-**Fix:** Track the timer in a ref, cancel on each new call, and clean up on unmount:
+(For endpoints that may legitimately return 204, handle that explicitly.)
 
-```typescript
-const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+### WR-04: `SubmitJobForm` accepts `NaN` and non-integer F/C, bypassing the client-side guard
 
-function showBanner(b: Banner, durationMs = 6000) {
-  if (bannerTimerRef.current !== null) clearTimeout(bannerTimerRef.current);
-  setBanner(b);
-  bannerTimerRef.current = setTimeout(() => {
-    setBanner(null);
-    bannerTimerRef.current = null;
-  }, durationMs);
+**File:** `ui/src/components/SubmitJobForm.tsx:101,113,42`
+
+**Issue:** `onChange` does `setF(Number(e.target.value))`. Clearing the number input yields `''` → `Number('') === 0`, and partial/invalid entries can yield `NaN`. The guard at line 42 checks `f < 2 || f > 100_000 ...`, but `NaN < 2` is `false` and `NaN > 100_000` is `false`, so `NaN` passes the guard and is sent to the API as `{ F: NaN }`, which `JSON.stringify` serializes to `null`. The guard also never enforces integers (e.g. `F=2.5` passes). The comment claims it matches "API Zod bounds (T-06-05)" but it does not match an integer/`NaN` constraint.
+
+**Fix:** Validate with `Number.isInteger` and explicit `NaN` rejection:
+
+```ts
+if (!Number.isInteger(f) || !Number.isInteger(c) ||
+    f < 2 || f > 100_000 || c < 1 || c > 10_000) {
+  showBanner({ type: 'error', message: 'F must be an integer 2..100000, C an integer 1..10000' });
+  return;
 }
-
-useEffect(() => {
-  return () => {
-    if (bannerTimerRef.current !== null) clearTimeout(bannerTimerRef.current);
-  };
-}, []);
 ```
 
----
+### WR-05: Dev proxy (vite) and prod proxy (nginx) cover different SSE route sets
 
-### WR-03: `useJobTasks` performs no abort-on-unmount — fetch completes and mutates store after component is gone
+**File:** `ui/vite.config.ts:11-24`, `ui/nginx.conf:11-54`
 
-**File:** `ui/src/hooks/useJobTasks.ts:36-51`
+**Issue:** The client connects to `/events` (`useSSE.ts:29`) and downloads results via `/jobs/:id/result` (`api.ts:101-103`, covered by `/jobs`). The dev proxy lists only `/jobs`, `/system`, `/events`, whereas `nginx.conf` additionally proxies `/system/events`. Nothing in the reviewed client calls `/system/events`, so that nginx block is dead config relative to this client, and the dev/prod asymmetry is a latent footgun: a future call to `/system/events` would work in prod but 404 in dev (or vice-versa).
 
-**Issue:** When `JobRow` collapses and unmounts while a task fetch is in flight, the `.then()` callback still runs:
-- `setLoading(false)` is called on the unmounted instance's state dispatcher.
-- `useJobsStore.getState().setJobTasks(jobId, tasks)` mutates global store with data from an abandoned request.
+**Fix:** Standardize on one SSE route. If the client uses `/events`, remove the `/system/events` block from `nginx.conf` (or vice versa) so dev and prod proxy exactly the same set of routes the client calls.
 
-Additionally, the `inFlight` ref is per-component-instance and resets to `false` on unmount. In React 18 StrictMode (active via `main.tsx:11`), effects are double-invoked during development. A second mount after the first unmount gets `inFlight.current = false`, bypasses the guard, and dispatches a duplicate fetch while the first request is still outstanding.
+### WR-06: Unused `formatTime` export (no NaN guard) and loosely-typed `StatusPill` maps defeat exhaustiveness
 
-**Fix:** Use `AbortController` and guard on abort in all callbacks:
+**File:** `ui/src/lib/format.ts:34-37`, `ui/src/components/StatusPill.tsx:3-13`
 
-```typescript
-useEffect(() => {
-  if (!enabled) return;
-  const cached = useJobsStore.getState().jobTasks[jobId];
-  if (cached !== undefined) return;
-  if (inFlight.current) return;
+**Issue (two related robustness gaps):**
+1. `formatTime(iso)` is exported but never called anywhere (components inline `new Date(...).toLocaleTimeString()` in `LogFeed.tsx:74` and the charts). Dead public surface; it also does no `isNaN` guard, unlike `formatElapsed`, so it can render `"Invalid Date"`.
+2. `StatusPill`'s `dotColors`/`labelText` are typed `Record<string, string>` rather than keyed by the `connectionStatus` union. This defeats exhaustiveness checking: if a new `connectionStatus` value is added to the store union, TypeScript will not flag the missing entry and the pill silently falls back.
 
-  const controller = new AbortController();
-  inFlight.current = true;
-  setLoading(true);
-  setError(null);
-
-  getJobTasks(jobId, controller.signal)
-    .then((tasks) => {
-      if (!controller.signal.aborted) {
-        useJobsStore.getState().setJobTasks(jobId, tasks);
-        setLoading(false);
-      }
-    })
-    .catch((err: unknown) => {
-      if (controller.signal.aborted) return;
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      setLoading(false);
-      useLogStore.getState().addLine('warn', `Failed to load tasks for ${shortId(jobId)}: ${message}`);
-    })
-    .finally(() => { inFlight.current = false; });
-
-  return () => { controller.abort(); };
-}, [jobId, enabled]);
-```
-
-`api.ts` `getJobTasks` needs to accept and forward the signal to `fetch`.
-
----
-
-### WR-04: `LogFeed` auto-scroll fires on every raw log line even when a level filter is active — scrolls a filtered view with no new visible content
-
-**File:** `ui/src/components/LogFeed.tsx:23-29`
-
-**Issue:** The scroll `useEffect` depends on `lines.length` — the raw, unfiltered count. When the user has an active filter (e.g. "error") and a burst of "info" lines arrives, `lines.length` increments and triggers scrolling of the filtered view even though no new visible content was added. For a system generating many non-error log lines, this repeatedly jerks the scroll position while the user is reading the error-only view.
-
-```typescript
-// Current — scrolls on any new line regardless of filter:
-}, [lines.length]);
-```
-
-**Fix:** Depend on `filteredLines.length` instead:
-
-```typescript
-}, [filteredLines.length]);
-```
-
-This also makes the separate `lines` subscription at line 16 redundant — it can be removed once this fix is applied (see IN-03).
-
----
-
-### WR-05: `vitest.config.ts` is missing `setupFiles` — `toBeInTheDocument()` throws when vitest runs through this config
-
-**File:** `ui/vitest.config.ts:1-21`
-
-**Issue:** Two files define vitest configuration: `vite.config.ts` (with `test` block) and `vitest.config.ts`. When `vitest` CLI runs directly (`npx vitest`, `npm test`), it resolves `vitest.config.ts` first per Vitest's documented resolution order. `vitest.config.ts` is missing `setupFiles: './src/setupTests.ts'`.
-
-Without `setupFiles`, `@testing-library/jest-dom/vitest` is never imported. All `expect(...).toBeInTheDocument()` assertions in the component tests throw `TypeError: expect(...).toBeInTheDocument is not a function`. All five component test files fail under this config. `npm run test` runs `vitest run` which will pick up `vitest.config.ts`, so this failure reproduces on every `npm test` invocation in a clean environment.
-
-`vitest.config.ts` is also missing `include`/`exclude` coverage patterns, meaning coverage is computed over a different (larger) file set than `vite.config.ts` intends.
-
-**Fix:** Delete `vitest.config.ts` and keep the single authoritative test configuration in `vite.config.ts`. Alternatively, migrate fully to `vitest.config.ts` with the merged settings:
-
-```typescript
-export default defineConfig({
-  plugins: [react()],
-  test: {
-    environment: 'jsdom',
-    globals: true,
-    setupFiles: ['./src/setupTests.ts'],    // required for jest-dom matchers
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'html', 'lcov'],
-      include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/setupTests.ts', 'src/main.tsx', 'src/**/__tests__/**'],
-      thresholds: { lines: 60, branches: 60, functions: 60, statements: 60 },
-    },
-  },
-});
-```
-
----
-
-### WR-06: Task drill-down is permanently stale — `useJobTasks` never re-fetches; completed tasks remain showing `running` indefinitely
-
-**File:** `ui/src/hooks/useJobTasks.ts:26-28`
-
-**Issue:** The cache check unconditionally returns if tasks are present:
-
-```typescript
-const cached = useJobsStore.getState().jobTasks[jobId];
-if (cached !== undefined) return;
-```
-
-Once fetched, tasks are never refreshed. A job that is `running` when the user first expands its row will show tasks as `pending`/`running` even after the job transitions to `done` or `failed` via SSE. The `task_completed` SSE event is received in `useSSE.ts:63` but explicitly dropped with a comment. There is no cache-invalidation path.
-
-**Fix:** Invalidate the task cache when a `job_update` SSE event signals a terminal state:
-
-```typescript
-// useJobsStore.ts — add clearJobTasks action:
-clearJobTasks: (jobId: string) => {
-  set((state) => {
-    const { [jobId]: _, ...rest } = state.jobTasks;
-    return { jobTasks: rest };
-  });
-},
-
-// useSSE.ts — invalidate on terminal transition:
-case 'job_update':
-  useJobsStore.getState().upsertJob(sseEvent.job);
-  if (sseEvent.job.status === 'done' || sseEvent.job.status === 'failed') {
-    useJobsStore.getState().clearJobTasks(sseEvent.job.id);
-  }
-  break;
-```
-
----
-
-### WR-07: `api.test.ts` error-path test calls `createJob` twice — second call masks first and inflates call count
-
-**File:** `ui/src/__tests__/api.test.ts:62-79`
-
-**Issue:** The test at line 62 uses `await expect(createJob(...)).rejects.toThrow(ApiError)` which consumes the first mock call. It then enters a `try { await createJob(...) }` block at line 73 that makes a second call against the same mock. This means `mockFetch` is called twice when the test name implies a single invocation. More critically: the outer `try/catch` silently ignores errors that are not `ApiError` — if `createJob` threw a `TypeError` instead, the `expect(err).toBeInstanceOf(ApiError)` at line 76 would fail, but the failure message would reference line 76 rather than exposing the root cause at line 63. The test structure obscures failures.
-
-**Fix:** Remove the double-call and assert error properties directly:
-
-```typescript
-it('throws ApiError with status 400 on bad request', async () => {
-  const mockFetch = vi.fn().mockResolvedValue({
-    ok: false,
-    status: 400,
-    headers: { get: () => 'application/json' },
-    json: () => Promise.resolve({ error: 'bad' }),
-  });
-  vi.stubGlobal('fetch', mockFetch);
-
-  const err = await createJob({ F: 5, C: 2 }).catch((e: unknown) => e);
-  expect(err).toBeInstanceOf(ApiError);
-  expect((err as ApiError).status).toBe(400);
-});
-```
-
----
-
-### WR-08: nginx proxy blocks missing `X-Forwarded-Proto` header — API cannot determine TLS termination
-
-**File:** `ui/nginx.conf:12-44`
-
-**Issue:** All five proxy location blocks set `X-Forwarded-For` but none set `X-Forwarded-Proto`. When this nginx container is placed behind a TLS-terminating load balancer (the standard production topology), the API receives all requests as plain HTTP with no indication that the original connection was HTTPS. Any API logic that checks the protocol for HTTPS enforcement, secure cookie flags, or redirect generation will behave incorrectly.
-
-**Fix:** Add `proxy_set_header X-Forwarded-Proto $scheme;` to every proxy location block:
-
-```nginx
-proxy_set_header Host $host;
-proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-proxy_set_header X-Forwarded-Proto $scheme;
-```
-
----
+**Fix:** Remove `formatTime` (or route `LogFeed`/charts through it after adding an `isNaN` guard). Type the maps as `Record<SystemState['connectionStatus'], string>` so missing cases fail compilation.
 
 ## Info
 
-### IN-01: `JobTaskRows` declares `jobId` prop in its interface but the component never uses it
+### IN-01: `useJobsStore` exports `selectJobList`/`selectJobStats`/`setJobs` that no reviewed component consumes
 
-**File:** `ui/src/components/JobTaskRows.tsx:8, 13`
+**File:** `ui/src/store/useJobsStore.ts:31-52,68-72`
 
-**Issue:** `JobTaskRowsProps` declares `jobId: string` as a required field (line 8), but the destructuring at line 13 is `{ tasks, loading, error, colSpan }` — `jobId` is silently dropped. Every call site in `JobsTable.tsx:125` must pass a `jobId` value that is discarded. TypeScript's `noUnusedParameters` does not catch this because the prop is omitted from destructuring rather than declared and unused.
+**Issue:** `JobsTable` sorts inline via its own `sortJobs` (`JobsTable.tsx:18-44`) and `StatsCards` computes counts inline (`StatsCards.tsx:24-29`), so `selectJobList` and `selectJobStats` are dead exports. `setJobs` is also unused (bootstrap uses `setState` directly in `useInitialLoad.ts:12`). Dead exports drift out of sync with the inline logic they duplicate.
 
-**Fix:** Remove `jobId` from `JobTaskRowsProps` and from the `<JobTaskRows>` call site in `JobsTable.tsx:125`.
+**Fix:** Either consume the selectors from the components (removing duplicated inline logic) or delete the unused exports.
 
----
+### IN-02: Magic constant `9` in size estimate is undocumented
 
-### IN-02: `formatTime` is exported but never imported by any source file — dead export duplicated inline
+**File:** `ui/src/components/SubmitJobForm.tsx:20`
 
-**File:** `ui/src/lib/format.ts:35-37`
+**Issue:** `const sizeBytes = f * c * 9;` — the `9` (presumably average bytes per value incl. delimiter) is a magic number with no explanation.
 
-**Issue:** `export function formatTime` has no importers. `LogFeed.tsx:75` duplicates its logic inline with `new Date(line.ts).toLocaleTimeString()`. The function is dead bundle weight and creates a maintenance divergence point.
+**Fix:** Extract to a named constant with a comment, e.g. `const AVG_BYTES_PER_VALUE = 9;`.
 
-**Fix:** Either delete `formatTime`, or import and use it in `LogFeed.tsx:75` to remove the inline duplication:
+### IN-03: `clearJobTasks` relies on an eslint-disable to drop a destructured key
 
-```typescript
-import { formatTime } from '../lib/format';
-// ...
-<span className="text-slate-600 select-none">{formatTime(line.ts)}</span>
+**File:** `ui/src/store/useJobsStore.ts:82-84`
+
+**Issue:** The `const { [jobId]: _removed, ...rest } = state.jobTasks;` pattern requires a lint suppression. It works but the suppression is a smell.
+
+**Fix:** Prefer an explicit copy-and-delete:
+
+```ts
+clearJobTasks: (jobId) => set((state) => {
+  const rest = { ...state.jobTasks };
+  delete rest[jobId];
+  return { jobTasks: rest };
+}),
 ```
 
----
+### IN-04: `WorkerSpeedChart.workerColor` masks hash to 16 bits unnecessarily
 
-### IN-03: `LogFeed` maintains a redundant `lines` subscription used only for scroll — can be removed after WR-04 fix
+**File:** `ui/src/components/WorkerSpeedChart.tsx:21-27`
 
-**File:** `ui/src/components/LogFeed.tsx:16`
+**Issue:** `hash = (hash * 31 + charCode) & 0xffff` masks to 16 bits before `% PALETTE.length` (6). With only 6 colors this is cosmetic, but the early mask is unnecessary and slightly biases distribution. Not a correctness bug. (Performance is out of scope.)
 
-**Issue:** `lines` is subscribed at line 16 solely to feed the `useEffect` dependency at line 29. `filteredLines` from `selectFilteredLines` is already subscribed at line 18 and derived from the same store state. Once WR-04 is applied (`filteredLines.length` as the scroll dependency), the `lines` subscription at line 16 becomes entirely redundant and causes an extra re-render on every log line addition that would not have affected the filtered view.
+**Fix:** Drop the `& 0xffff` mask, or document that color collisions are acceptable.
 
-**Fix (apply after WR-04):** Remove line 16 and update the scroll effect dependency:
+### IN-05: No render test on `<App />` to catch duplicate/orphaned headings
 
-```typescript
-// Remove: const lines = useLogStore((s) => s.lines);
-// Change effect: }, [filteredLines.length]);
-```
+**File:** `ui/src/App.tsx:24-67` (test gap)
 
----
+**Issue:** Closely tied to CR-01: the absence of any `<App />`-level render test is precisely why the duplicate-card/heading defect went unnoticed. After fixing CR-01, verify no orphaned/duplicate headings remain.
 
-### IN-04: `React.Fragment` with `key` prop inside `JobRow` is misleading — key has no effect there
-
-**File:** `ui/src/components/JobsTable.tsx:83`
-
-**Issue:**
-
-```tsx
-return (
-  <React.Fragment key={job.id}>
-```
-
-The `key` here has no effect on reconciliation. React reconciliation keys must be placed at the list-rendering call site. The effective key is `key={j.id}` on the `<JobRow>` element at line 214. The Fragment `key` inside the component function body is invisible to the outer reconciler. This misleads a reader into believing the inner `key` is load-bearing, which may cause a developer to remove the correct outer key thinking it is redundant.
-
-**Fix:** Remove `key` from the inner Fragment:
-
-```tsx
-return (
-  <>
-    {/* reconciliation key is on the <JobRow key={j.id}> call site in JobsTable */}
-    <tr ...>
-```
+**Fix:** Add a render test on `<App />` asserting `screen.getAllByRole('heading', { name: 'Live Log' })` (and the other panel titles) returns exactly one element each.
 
 ---
 
-### IN-05: `docker-compose.yml` uses the deprecated `version:` top-level key
-
-**File:** `docker-compose.yml:1`
-
-**Issue:** `version: "3.9"` is ignored by Docker Compose v2 (shipped with Docker Desktop 4.x and all modern CI runners) and emits a deprecation warning on every `docker compose up` invocation. It has no functional effect.
-
-**Fix:** Remove the `version: "3.9"` line.
-
----
-
-_Reviewed: 2026-05-28_
+_Reviewed: 2026-06-17_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
