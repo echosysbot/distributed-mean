@@ -49,7 +49,11 @@ async function request<T>(
     );
   }
 
-  return res.json() as Promise<T>;
+  try {
+    return (await res.json()) as T;
+  } catch {
+    throw new ApiError(res.status, null, `Invalid JSON response from ${path}`);
+  }
 }
 
 /** GET /jobs → { jobs: Job[] } */

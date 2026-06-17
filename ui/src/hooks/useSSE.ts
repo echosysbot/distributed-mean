@@ -75,6 +75,9 @@ export function useSSE(): void {
         useSystemStore.getState().setConnectionStatus('reconnecting');
         es.close();
         esRef.current = null;
+        // Clear any pending timer before scheduling a new one to prevent leaks
+        // when onerror fires repeatedly (e.g. flapping network).
+        if (timerRef.current !== null) clearTimeout(timerRef.current);
         timerRef.current = setTimeout(() => {
           connect();
         }, RECONNECT_DELAY_MS);

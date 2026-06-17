@@ -31,17 +31,12 @@ export function WorkerFleet() {
   const workers = useSystemStore((s) => s.workers);
 
   return (
-    <div className="rounded-lg bg-slate-800 border border-slate-700 p-5">
-      <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
-        Worker Fleet
-      </h2>
-      <div className="flex flex-wrap gap-2 min-h-[60px]">
-        {workers.length === 0 ? (
-          <span className="text-slate-500 text-sm">No workers connected yet</span>
-        ) : (
-          workers.map((w) => <WorkerChip key={w.id} worker={w} />)
-        )}
-      </div>
+    <div className="flex flex-wrap gap-2 min-h-[60px]">
+      {workers.length === 0 ? (
+        <span className="text-slate-500 text-sm">No workers connected yet</span>
+      ) : (
+        workers.map((w) => <WorkerChip key={w.id} worker={w} />)
+      )}
     </div>
   );
 }

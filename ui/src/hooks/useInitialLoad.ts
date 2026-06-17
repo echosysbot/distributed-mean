@@ -9,9 +9,11 @@ export function useInitialLoad(): void {
     void (async () => {
       try {
         const [jobs, sys] = await Promise.all([listJobs(), getSystem()]);
-        useJobsStore.setState({
-          jobs: Object.fromEntries(jobs.map((j) => [j.id, j])),
-        });
+        // Merge instead of replace — SSE may have delivered jobs during the async load;
+        // spread state.jobs last so any in-flight SSE updates (newer) win.
+        useJobsStore.setState((state) => ({
+          jobs: { ...Object.fromEntries(jobs.map((j) => [j.id, j])), ...state.jobs },
+        }));
         useSystemStore.setState({
           workers: sys.workers,
           queueDepth: sys.queueDepth,

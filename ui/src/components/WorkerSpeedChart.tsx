@@ -46,14 +46,7 @@ export function WorkerSpeedChart() {
   const workerIds = Object.keys(workerSpeedHistory);
 
   if (workerIds.length === 0) {
-    return (
-      <div className="rounded-lg bg-slate-800 border border-slate-700 p-5">
-        <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
-          Worker Activity (last 2 min)
-        </h2>
-        <p className="text-slate-500 text-sm">No worker activity yet</p>
-      </div>
-    );
+    return <p className="text-slate-500 text-sm">No worker activity yet</p>;
   }
 
   const now = Date.now();
@@ -81,11 +74,7 @@ export function WorkerSpeedChart() {
   });
 
   return (
-    <div className="rounded-lg bg-slate-800 border border-slate-700 p-5">
-      <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
-        Worker Activity (last 2 min)
-      </h2>
-      <ResponsiveContainer width="100%" height={180}>
+    <ResponsiveContainer width="100%" height={180}>
         <LineChart data={data}>
           <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" />
           <XAxis dataKey="ts" tick={{ fontSize: 10, fill: '#64748b' }} hide />
@@ -115,7 +104,6 @@ export function WorkerSpeedChart() {
             />
           ))}
         </LineChart>
-      </ResponsiveContainer>
-    </div>
+    </ResponsiveContainer>
   );
 }

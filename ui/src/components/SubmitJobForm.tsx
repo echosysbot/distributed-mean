@@ -38,8 +38,8 @@ export function SubmitJobForm() {
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    // Client-side guard matching API Zod bounds (T-06-05)
-    if (f < 2 || f > 100_000 || c < 1 || c > 10_000) {
+    // Client-side guard matching API Zod bounds (T-06-05) — also rejects NaN and non-integers
+    if (!Number.isInteger(f) || !Number.isInteger(c) || f < 2 || f > 100_000 || c < 1 || c > 10_000) {
       showBanner({ type: 'error', message: 'Invalid F or C — F must be 2..100000, C must be 1..10000' });
       return;
     }
@@ -84,11 +84,7 @@ export function SubmitJobForm() {
   }
 
   return (
-    <div className="rounded-lg bg-slate-800 border border-slate-700 p-5">
-      <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
-        Submit Job
-      </h2>
-      <form onSubmit={(e) => { void handleSubmit(e); }}>
+    <form onSubmit={(e) => { void handleSubmit(e); }}>
         <div className="flex gap-3 items-end flex-wrap">
           <div className="flex flex-col gap-1">
             <label htmlFor="input-f" className="text-sm text-slate-400">Files (F)</label>
@@ -139,7 +135,6 @@ export function SubmitJobForm() {
             {banner.message}
           </div>
         )}
-      </form>
-    </div>
+    </form>
   );
 }

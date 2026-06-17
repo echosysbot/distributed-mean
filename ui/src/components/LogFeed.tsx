@@ -34,34 +34,29 @@ export function LogFeed() {
   }
 
   return (
-    <div className="rounded-lg bg-slate-800 border border-slate-700 p-5">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
-          Live Log
-        </h2>
-        <div className="flex gap-1">
-          {FILTER_OPTIONS.map((opt) => (
-            <button
-              key={opt}
-              type="button"
-              onClick={() => { useLogStore.getState().setFilter(opt); }}
-              className={`px-2 py-0.5 rounded text-xs border border-slate-700 cursor-pointer ${
-                filter === opt
-                  ? 'bg-slate-700 text-slate-200'
-                  : 'bg-transparent text-slate-500 hover:text-slate-300'
-              }`}
-            >
-              {opt}
-            </button>
-          ))}
+    <>
+      <div className="flex gap-1 mb-3">
+        {FILTER_OPTIONS.map((opt) => (
           <button
+            key={opt}
             type="button"
-            onClick={() => { useLogStore.getState().clear(); }}
-            className="ml-2 px-2 py-0.5 rounded text-xs border border-slate-700 bg-transparent text-slate-500 hover:text-slate-300 cursor-pointer"
+            onClick={() => { useLogStore.getState().setFilter(opt); }}
+            className={`px-2 py-0.5 rounded text-xs border border-slate-700 cursor-pointer ${
+              filter === opt
+                ? 'bg-slate-700 text-slate-200'
+                : 'bg-transparent text-slate-500 hover:text-slate-300'
+            }`}
           >
-            Clear
+            {opt}
           </button>
-        </div>
+        ))}
+        <button
+          type="button"
+          onClick={() => { useLogStore.getState().clear(); }}
+          className="ml-2 px-2 py-0.5 rounded text-xs border border-slate-700 bg-transparent text-slate-500 hover:text-slate-300 cursor-pointer"
+        >
+          Clear
+        </button>
       </div>
       <div
         ref={containerRef}
@@ -77,6 +72,6 @@ export function LogFeed() {
           </div>
         ))}
       </div>
-    </div>
+    </>
   );
 }
