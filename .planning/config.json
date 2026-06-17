@@ -12,7 +12,8 @@
     "research_before_questions": false,
     "code_review_command": null,
     "plan_bounce": false,
-    "cross_ai_execution": false
+    "cross_ai_execution": false,
+    "_auto_chain_active": false
   },
   "planning": {
     "commit_docs": true,

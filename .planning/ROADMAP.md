@@ -68,3 +68,30 @@
 - .pre-commit-config.yaml
 - Complete README (quickstart, API ref, algorithm, cloud deploy)
 **Success:** CI pipeline green on a test PR. Integration tests pass against docker compose stack.
+
+## Phase 6: React Dashboard (replacing Phase 4 vanilla)
+**Goal:** Replace the vanilla HTML dashboard with a proper React 18 + TypeScript + Vite + Tailwind + Recharts dashboard
+**Branch:** feat/phase-6-react-dashboard
+**Depends on:** Phase 2 (API), Phase 5 (CI)
+**Deliverables:**
+- React 18 + TypeScript + Vite scaffold in `ui/`
+- Tailwind CSS v3 + Recharts + Zustand
+- Worker fleet grid (id, status, speed, current task)
+- Queue depth chart (live, last 2 min window)
+- Worker speed chart (multi-line, last 2 min)
+- Jobs table (sortable, expandable tasks)
+- Job submit form (F, C inputs, estimated file count)
+- System stats cards (total/busy/idle workers, queue depth, job counts)
+- Live log feed (SSE events, 200-entry limit, level filter)
+- nginx Dockerfile + docker-compose ui service on port 5173
+- Vitest + React Testing Library tests ≥60% coverage
+- Zero TypeScript `any` types
+- `npm run build` zero errors
+**Success:** `docker compose up --build` starts all services. Dashboard accessible at http://localhost:5173. Submitting a job shows real-time updates.
+
+**Plans:** 4/4 plans complete
+Plans:
+- [ ] 06-PLAN-01.md — Scaffold Vite+React+TS+Tailwind+Recharts+Zustand; mirror API types; build typed fetch client, Zustand stores, useSSE/useInitialLoad hooks
+- [ ] 06-PLAN-02.md — Build UI components: StatsCards, WorkerFleet, QueueDepthChart, WorkerSpeedChart, SubmitJobForm, LogFeed, Header
+- [ ] 06-PLAN-03.md — Build sortable expandable JobsTable with lazy task loading + StatusBadge
+- [ ] 06-PLAN-04.md — Compose App.tsx, Vitest+RTL tests ≥60% coverage, nginx Dockerfile, docker-compose `ui` service on 5173, retire legacy dashboard
